@@ -1,0 +1,50 @@
+---
+- name: Установка Docker на целевом хосте
+  hosts: docker_hosts
+  become: true
+  gather_facts: true
+
+  vars:
+    docker_packages:
+      - docker.io
+
+  tasks:
+    - name: Проверить, что целевая система на базе Debian/Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == "Debian"
+        fail_msg: "Этот playbook рассчитан на Debian/Ubuntu. Обнаружена ОС: {{ ansible_facts.os_family }}"
+        success_msg: "Обнаружена совместимая ОС: {{ ansible_facts.os_family }}"
+
+    - name: Обновить кеш пакетов APT
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Установить пакеты Docker
+      ansible.builtin.apt:
+        name: "{{ docker_packages }}"
+        state: present
+
+    - name: Добавить пользователя в группу docker
+      ansible.builtin.user:
+        name: "{{ ansible_user_id }}"
+        groups: docker
+        append: true
+      become: true
+
+    - name: Убедиться, что служба docker запущена и включена
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Проверить установленную версию Docker
+      ansible.builtin.command: docker --version
+      register: docker_version
+      changed_when: false
+
+    - name: Показать версию Docker
+      ansible.builtin.debug:
+        msg: "Docker успешно установлен: {{ docker_version.stdout | default('нет вывода docker --version') }}"
+

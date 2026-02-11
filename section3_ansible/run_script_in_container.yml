@@ -1,0 +1,84 @@
+---
+- name: Сборка образа и запуск контейнера со скриптом http_requests.py
+  hosts: docker_hosts
+  become: true
+  gather_facts: false
+
+  vars:
+    project_root_remote: /opt/http-test
+    image_name: http-script-image
+    container_name: http-script-container
+
+  tasks:
+    - name: Создать корневую директорию для проекта на целевом хосте
+      ansible.builtin.file:
+        path: "{{ project_root_remote }}"
+        state: directory
+        mode: "0755"
+
+    - name: Создать директорию section1_script на целевом хосте
+      ansible.builtin.file:
+        path: "{{ project_root_remote }}/section1_script"
+        state: directory
+        mode: "0755"
+
+    - name: Создать директорию section2_docker на целевом хосте
+      ansible.builtin.file:
+        path: "{{ project_root_remote }}/section2_docker"
+        state: directory
+        mode: "0755"
+
+    - name: Скопировать http_requests.py на целевой хост
+      ansible.builtin.copy:
+        src: ../section1_script/http_requests.py
+        dest: "{{ project_root_remote }}/section1_script/http_requests.py"
+        mode: "0644"
+
+    - name: Скопировать requirements.txt на целевой хост
+      ansible.builtin.copy:
+        src: ../section1_script/requirements.txt
+        dest: "{{ project_root_remote }}/section1_script/requirements.txt"
+        mode: "0644"
+
+    - name: Скопировать Dockerfile на целевой хост
+      ansible.builtin.copy:
+        src: ../section2_docker/Dockerfile
+        dest: "{{ project_root_remote }}/section2_docker/Dockerfile"
+        mode: "0644"
+
+    - name: Собрать Docker-образ на целевом хосте
+      ansible.builtin.command: docker build -f section2_docker/Dockerfile -t {{ image_name }} .
+      args:
+        chdir: "{{ project_root_remote }}"
+      register: build_result
+
+    - name: Показать вывод сборки образа
+      ansible.builtin.debug:
+        var: build_result.stdout_lines
+
+    - name: Остановить и удалить уже существующий контейнер (если есть)
+      ansible.builtin.command: docker rm -f {{ container_name }}
+      register: remove_container
+      failed_when: false
+      changed_when: remove_container.rc == 0
+
+    - name: Запустить контейнер со скриптом
+      ansible.builtin.command: docker run --name {{ container_name }} {{ image_name }}
+      register: run_result
+
+    - name: Убедиться, что контейнер завершился с кодом 0
+      ansible.builtin.assert:
+        that:
+          - run_result.rc == 0
+        fail_msg: "Контейнер {{ container_name }} завершился с кодом {{ run_result.rc }}, ожидается 0."
+        success_msg: "Контейнер {{ container_name }} успешно отработал с кодом 0."
+
+    - name: Получить логи контейнера
+      ansible.builtin.command: docker logs {{ container_name }}
+      register: container_logs
+      changed_when: false
+
+    - name: Показать логи контейнера
+      ansible.builtin.debug:
+        msg: "{{ container_logs.stdout_lines }}"
+
